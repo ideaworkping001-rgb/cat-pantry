@@ -3,8 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>貓咪食堂 V3.5.3</title>
+    <title>貓咪食堂 V3.5.8-Portfolio</title>
     
+    <!--
+    /* --- Version History --- */
+    V3.5.8-Portfolio: 作品集最終部署版。完整恢復原始高質感 UI，並替換為 cat-pantry-portfolio 後端。
+    V3.5.8: 初始穩定版本 UI。
+    -->
+
     <style>
         body { background-color: #ffffff; color: #292524; -webkit-tap-highlight-color: transparent; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
@@ -22,8 +28,10 @@
     <script>
         window.onerror = function(msg, url, line, col, error) {
             var consoleDiv = document.getElementById('debug-console');
-            consoleDiv.style.display = 'block';
-            consoleDiv.innerHTML += '❌ 錯誤：' + msg + '\n';
+            if (consoleDiv) {
+                consoleDiv.style.display = 'block';
+                consoleDiv.innerHTML += '❌ 錯誤：' + msg + '\n';
+            }
             return false;
         };
     </script>
@@ -62,32 +70,26 @@
         } from 'lucide-react';
 
         import { initializeApp } from 'firebase/app';
-        import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-        import { getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, writeBatch } from 'firebase/firestore';
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
+        import { getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, writeBatch, query } from 'firebase/firestore';
 
-        // --- 設定區 ---
+        // --- 設定區 (已替換為您的作品集專案 Config) ---
         const firebaseConfig = {
-            apiKey: "AIzaSyB3XUohe5PtgBTJuwVGPmqf4xWxb_2odYw",
-            authDomain: "hanaheyjude.firebaseapp.com",
-            projectId: "hanaheyjude",
-            storageBucket: "hanaheyjude.firebasestorage.app",
-            messagingSenderId: "1096908110046",
-            appId: "1:1096908110046:web:4b1c99468f0cbdfbdbea4f",
-            measurementId: "G-MX6DZ3Q8GD"
+            apiKey: "AIzaSyD-mqpe5PTRuje67ZoKgF7Dy4Aty9neSkE",
+            authDomain: "cat-pantry-portfolio.firebaseapp.com",
+            projectId: "cat-pantry-portfolio",
+            storageBucket: "cat-pantry-portfolio.firebasestorage.app",
+            messagingSenderId: "983910490888",
+            appId: "1:983910490888:web:abbb504510acd8fc84c2bd"
         };
-        const apiKey = ""; 
+        const apiKey = ""; // Gemini API Key 可選
 
-        let app, auth, db;
-        const isConfigured = firebaseConfig && firebaseConfig.apiKey;
-        if (isConfigured) {
-            try {
-                app = initializeApp(firebaseConfig);
-                auth = getAuth(app);
-                db = getFirestore(app);
-            } catch(e) { console.error(e); }
-        }
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
 
         const appId = 'standalone-app';
+        const APP_VERSION = 'v3.5.8-Portfolio'; 
         const CATEGORIES = ['主食罐', '副食罐', '凍乾', '乾乾'];
 
         // --- 輔助函式 ---
@@ -215,7 +217,6 @@
             const [moveBrandTarget, setMoveBrandTarget] = useState(null);
             const [ratingTarget, setRatingTarget] = useState(null);
             const [feedingTarget, setFeedingTarget] = useState(null);
-            
             const [vomitTarget, setVomitTarget] = useState(null);
             const [vomitNote, setVomitNote] = useState('');
 
@@ -248,9 +249,11 @@
             const getItemRatings = (itemName, brand) => {
                 const itemLogs = logs.filter(l => l.foodName === itemName && l.brand === brand);
                 if (itemLogs.length === 0) return null;
-                const hanaAvg = itemLogs.filter(l => l.ratingHana > 0).reduce((a, b, i, arr) => a + b.ratingHana / arr.length, 0).toFixed(1);
-                const heyJudeAvg = itemLogs.filter(l => l.ratingHeyJude > 0).reduce((a, b, i, arr) => a + b.ratingHeyJude / arr.length, 0).toFixed(1);
-                return { hana: hanaAvg === "0.0" ? null : hanaAvg, heyJude: heyJudeAvg === "0.0" ? null : heyJudeAvg };
+                const hanaRatings = itemLogs.filter(l => l.ratingHana > 0);
+                const heyJudeRatings = itemLogs.filter(l => l.ratingHeyJude > 0);
+                const hanaAvg = hanaRatings.length > 0 ? (hanaRatings.reduce((a, b) => a + b.ratingHana, 0) / hanaRatings.length).toFixed(1) : null;
+                const heyJudeAvg = heyJudeRatings.length > 0 ? (heyJudeRatings.reduce((a, b) => a + b.ratingHeyJude, 0) / heyJudeRatings.length).toFixed(1) : null;
+                return { hana: hanaAvg, heyJude: heyJudeAvg };
             };
 
             const favoriteFoods = useMemo(() => {
@@ -284,22 +287,29 @@
             }, [logs, toiletLogs, diaryFilter]);
 
             useEffect(() => {
-                if (!auth) { setLoading(false); return; }
-                const initAuth = async () => { try { await signInAnonymously(auth); } catch (error) { console.error("Auth Error:", error); } };
+                const initAuth = async () => { 
+                    try { 
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            try { await signInWithCustomToken(auth, __initial_auth_token); } 
+                            catch (tokenErr) { await signInAnonymously(auth); }
+                        } else { await signInAnonymously(auth); }
+                    } catch (error) { console.error("Auth Error:", error); } 
+                };
                 initAuth();
                 const unsubscribe = onAuthStateChanged(auth, setUser);
                 return () => unsubscribe();
             }, []);
 
             useEffect(() => {
-                if (!user || !db) return;
+                if (!user) return;
                 setLoading(true);
                 const safeRoomId = roomId.trim().toLowerCase() || 'my-cats';
-                const INVENTORY_COL = `room_${safeRoomId}_inventory`;
-                const LOGS_COL = `room_${safeRoomId}_logs`;
-                const TOILET_COL = `room_${safeRoomId}_toilet_logs`;
+                
+                const INVENTORY_COL = collection(db, 'artifacts', appId, 'public', 'data', `room_${safeRoomId}_inventory`);
+                const LOGS_COL = collection(db, 'artifacts', appId, 'public', 'data', `room_${safeRoomId}_logs`);
+                const TOILET_COL = collection(db, 'artifacts', appId, 'public', 'data', `room_${safeRoomId}_toilet_logs`);
 
-                const unsubItems = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', INVENTORY_COL), (snapshot) => {
+                const unsubItems = onSnapshot(INVENTORY_COL, (snapshot) => {
                     const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                     data.sort((a, b) => {
                         if (a.category !== b.category) return a.category.localeCompare(b.category);
@@ -310,12 +320,14 @@
                     setItems(data); setLoading(false);
                 }, (err) => { console.error(err); setLoading(false); });
 
-                const unsubLogs = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', LOGS_COL), (snapshot) => {
-                    setLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                const unsubLogs = onSnapshot(LOGS_COL, (snapshot) => {
+                    const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    setLogs(data);
                 });
 
-                const unsubToiletLogs = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', TOILET_COL), (snapshot) => {
-                    setToiletLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                const unsubToiletLogs = onSnapshot(TOILET_COL, (snapshot) => {
+                    const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    setToiletLogs(data);
                 });
 
                 return () => { unsubItems(); unsubLogs(); unsubToiletLogs(); };
@@ -328,7 +340,6 @@
                 setIsSettingsOpen(false); setAlertMessage(`已切換至房間：${cleanId}`);
                 window.location.hash = `#room=${cleanId}`;
             };
-
             const handleTabChange = (tab) => { setActiveTab(tab); window.scrollTo({ top: 0, behavior: 'auto' }); };
             const handleImageSelect = async (e) => { const file = e.target.files?.[0]; if (file) { setIsProcessingImage(true); try { setNewItemImage(await resizeImage(file)); } catch (err) { setAlertMessage("圖片處理失敗"); } finally { setIsProcessingImage(false); } } };
             const handleSmartScan = async () => { if (!apiKey) { setAlertMessage("⚠️ 請先設定 Gemini API Key"); return; } if (!newItemImage) { setAlertMessage("請先上傳照片"); return; } setIsScanning(true); const result = await analyzeImageWithGemini(newItemImage); if (result) { setNewItemName(result.name); if(result.brand) setNewItemBrand(result.brand); if (result.category) setNewItemCategory(result.category); setAlertMessage(`✨ 辨識成功！\n品牌：${result.brand || '未知'}\n品名：${result.name}\n分類：${result.category}`); } else { setAlertMessage("辨識失敗"); } setIsScanning(false); };
@@ -351,69 +362,72 @@
             const formatTime = (timestamp) => { if (!timestamp) return '剛剛'; const date = timestamp.seconds ? new Date(timestamp.seconds * 1000) : new Date(timestamp); return date.toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }); };
 
             const renderInventory = () => {
-                if (items.length === 0) return <div className="text-center py-12 bg-white rounded-xl shadow-sm border border-stone-100 text-stone-400">尚無庫存，請新增！</div>;
                 return (
                     <div className="pb-20 space-y-3">
-                        {CATEGORIES.map(cat => {
-                            const catItems = items.filter(i => i.category === cat);
-                            const isOpen = openCategory === cat;
-                            const brandGroups = catItems.reduce((acc, item) => { const b = item.brand || '其他品牌'; if(!acc[b]) acc[b] = []; acc[b].push(item); return acc; }, {});
-                            const totalStock = catItems.reduce((acc, item) => acc + item.quantity, 0);
-                            return (
-                                <div key={cat} className="bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden transition-all">
-                                    <button onClick={() => { setOpenCategory(isOpen ? null : cat); setOpenBrand(null); }} className={`w-full flex items-center justify-between p-4 text-left transition-colors ${isOpen ? 'bg-orange-50 text-orange-900' : 'bg-white text-stone-700 hover:bg-stone-50'}`}>
-                                        <div className="flex items-center gap-2"><span className="font-bold text-base">{cat}</span></div>
-                                        <div className="flex items-center gap-2"><span className={`text-xs px-2 py-1 rounded-full font-bold ${totalStock > 0 ? 'bg-orange-200 text-orange-800' : 'bg-stone-100 text-stone-400'}`}>{totalStock}</span>{isOpen ? <ChevronUp className="w-4 h-4 text-stone-400" /> : <ChevronDown className="w-4 h-4 text-stone-400" />}</div>
-                                    </button>
-                                    {isOpen && (
-                                        <div className="bg-stone-50 p-2 border-t border-stone-100 space-y-2">
-                                            {Object.entries(brandGroups).map(([brand, bItems]) => {
-                                                const isBrandOpen = openBrand === `${cat}-${brand}`;
-                                                const brandStock = bItems.reduce((acc, item) => acc + item.quantity, 0);
-                                                return (
-                                                    <div key={brand} className="bg-white rounded-lg border border-stone-200 overflow-hidden">
-                                                        <button onClick={() => setOpenBrand(isBrandOpen ? null : `${cat}-${brand}`)} className={`w-full flex items-center justify-between p-3 text-left transition-colors ${isBrandOpen ? 'bg-stone-100' : 'bg-white hover:bg-stone-50'}`}>
-                                                            <div className="flex items-center gap-2"><div onClick={e => {e.stopPropagation(); setMoveBrandTarget({brandName: brand, currentCategory: cat});}} className="p-1 rounded-full hover:bg-stone-200 text-stone-400"><ArrowRightLeft className="w-4 h-4" /></div><Tag className="w-3 h-3 text-stone-400" /><span className="text-sm font-bold text-stone-700">{brand}</span></div>
-                                                            <div className="flex items-center gap-2"><span className="text-xs text-stone-400 bg-stone-100 px-2 py-0.5 rounded-full">{brandStock}</span><ChevronRight className={`w-4 h-4 text-stone-400 transition-transform ${isBrandOpen ? 'rotate-90' : ''}`} /></div>
-                                                        </button>
-                                                        {isBrandOpen && (
-                                                            <div className="p-3 border-t border-stone-100 space-y-3 bg-stone-50">
-                                                                {bItems.map(item => {
-                                                                    const ratings = getItemRatings(item.name, item.brand);
-                                                                    return (
-                                                                        <div key={item.id} className="bg-white rounded-xl p-3 shadow-sm border border-stone-100 flex flex-col gap-3">
-                                                                            <div className="flex gap-3">
-                                                                                <div className="w-20 h-20 bg-stone-50 rounded-lg flex-shrink-0 overflow-hidden border border-stone-100 flex items-center justify-center relative cursor-zoom-in group" onClick={() => item.image && setViewImage(item.image)}>{item.image ? <><img src={item.image} className="w-full h-full object-cover transition group-hover:scale-105" /><div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition flex items-center justify-center"><Maximize2 className="w-5 h-5 text-white drop-shadow-md" /></div></> : <Cat className="w-8 h-8 text-stone-300 opacity-30" />}</div>
-                                                                                <div className="flex-1 min-w-0 flex flex-col justify-between">
-                                                                                    <div className="flex justify-between items-start gap-2">
-                                                                                        <div className="flex-1 min-w-0">
-                                                                                            <h3 className="font-bold text-base text-stone-800 truncate">{item.name}</h3>
-                                                                                            <div className="flex items-center gap-2 mt-1">
-                                                                                                <span className="text-[10px] text-stone-400">{item.unit} {item.weight > 0 && `(${item.weight}g)`}</span>
-                                                                                                {ratings && (<div className="flex gap-1 text-[10px]">{ratings.hana && <span className="text-pink-400">哈★{ratings.hana}</span>}{ratings.heyJude && <span className="text-blue-400">黑★{ratings.heyJude}</span>}</div>)}
+                        {items.length === 0 ? (
+                            <div className="text-center py-12 bg-white rounded-xl shadow-sm border border-stone-100 text-stone-400">尚無庫存，請點擊右下角新增！</div>
+                        ) : (
+                            CATEGORIES.map(cat => {
+                                const catItems = items.filter(i => i.category === cat);
+                                const isOpen = openCategory === cat;
+                                const brandGroups = catItems.reduce((acc, item) => { const b = item.brand || '其他品牌'; if(!acc[b]) acc[b] = []; acc[b].push(item); return acc; }, {});
+                                const totalStock = catItems.reduce((acc, item) => acc + item.quantity, 0);
+                                return (
+                                    <div key={cat} className="bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden transition-all">
+                                        <button onClick={() => { setOpenCategory(isOpen ? null : cat); setOpenBrand(null); }} className={`w-full flex items-center justify-between p-4 text-left transition-colors ${isOpen ? 'bg-orange-50 text-orange-900' : 'bg-white text-stone-700 hover:bg-stone-50'}`}>
+                                            <div className="flex items-center gap-2"><span className="font-bold text-base">{cat}</span></div>
+                                            <div className="flex items-center gap-2"><span className={`text-xs px-2 py-1 rounded-full font-bold ${totalStock > 0 ? 'bg-orange-200 text-orange-800' : 'bg-stone-100 text-stone-400'}`}>{totalStock}</span>{isOpen ? <ChevronUp className="w-4 h-4 text-stone-400" /> : <ChevronDown className="w-4 h-4 text-stone-400" />}</div>
+                                        </button>
+                                        {isOpen && (
+                                            <div className="bg-stone-50 p-2 border-t border-stone-100 space-y-2">
+                                                {Object.entries(brandGroups).map(([brand, bItems]) => {
+                                                    const isBrandOpen = openBrand === `${cat}-${brand}`;
+                                                    const brandStock = bItems.reduce((acc, item) => acc + item.quantity, 0);
+                                                    return (
+                                                        <div key={brand} className="bg-white rounded-lg border border-stone-200 overflow-hidden">
+                                                            <button onClick={() => setOpenBrand(isBrandOpen ? null : `${cat}-${brand}`)} className={`w-full flex items-center justify-between p-3 text-left transition-colors ${isBrandOpen ? 'bg-stone-100' : 'bg-white hover:bg-stone-50'}`}>
+                                                                <div className="flex items-center gap-2"><div onClick={e => {e.stopPropagation(); setMoveBrandTarget({brandName: brand, currentCategory: cat});}} className="p-1 rounded-full hover:bg-stone-200 text-stone-400"><ArrowRightLeft className="w-4 h-4" /></div><Tag className="w-3 h-3 text-stone-400" /><span className="text-sm font-bold text-stone-700">{brand}</span></div>
+                                                                <div className="flex items-center gap-2"><span className="text-xs text-stone-400 bg-stone-100 px-2 py-0.5 rounded-full">{brandStock}</span><ChevronRight className={`w-4 h-4 text-stone-400 transition-transform ${isBrandOpen ? 'rotate-90' : ''}`} /></div>
+                                                            </button>
+                                                            {isBrandOpen && (
+                                                                <div className="p-3 border-t border-stone-100 space-y-3 bg-stone-50">
+                                                                    {bItems.map(item => {
+                                                                        const ratings = getItemRatings(item.name, item.brand);
+                                                                        return (
+                                                                            <div key={item.id} className="bg-white rounded-xl p-3 shadow-sm border border-stone-100 flex flex-col gap-3">
+                                                                                <div className="flex gap-3">
+                                                                                    <div className="w-20 h-20 bg-stone-50 rounded-lg flex-shrink-0 overflow-hidden border border-stone-100 flex items-center justify-center relative cursor-zoom-in group" onClick={() => item.image && setViewImage(item.image)}>{item.image ? <><img src={item.image} className="w-full h-full object-cover transition group-hover:scale-105" /><div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition flex items-center justify-center"><Maximize2 className="w-5 h-5 text-white drop-shadow-md" /></div></> : <Cat className="w-8 h-8 text-stone-300 opacity-30" />}</div>
+                                                                                    <div className="flex-1 min-w-0 flex flex-col justify-between">
+                                                                                        <div className="flex justify-between items-start gap-2">
+                                                                                            <div className="flex-1 min-w-0">
+                                                                                                <h3 className="font-bold text-base text-stone-800 truncate">{item.name}</h3>
+                                                                                                <div className="flex items-center gap-2 mt-1">
+                                                                                                    <span className="text-[10px] text-stone-400">{item.unit} {item.weight > 0 && `(${item.weight}g)`}</span>
+                                                                                                    {ratings && (<div className="flex gap-1 text-[10px]">{ratings.hana && <span className="text-pink-400">哈★{ratings.hana}</span>}{ratings.heyJude && <span className="text-blue-400">黑★{ratings.heyJude}</span>}</div>)}
+                                                                                                </div>
                                                                                             </div>
+                                                                                            <div className="flex gap-2 flex-shrink-0"><button onClick={() => handleEditClick(item)} className="text-stone-300 hover:text-blue-400 p-2 -mr-1 -mt-2"><Edit3 className="w-4 h-4" /></button><button onClick={() => setDeleteTarget(item)} className="text-stone-300 hover:text-red-400 p-2 -mr-2 -mt-2"><Trash2 className="w-4 h-4" /></button></div>
                                                                                         </div>
-                                                                                        <div className="flex gap-2 flex-shrink-0"><button onClick={() => handleEditClick(item)} className="text-stone-300 hover:text-blue-400 p-2 -mr-1 -mt-2"><Edit3 className="w-4 h-4" /></button><button onClick={() => setDeleteTarget(item)} className="text-stone-300 hover:text-red-400 p-2 -mr-2 -mt-2"><Trash2 className="w-4 h-4" /></button></div>
-                                                                                    </div>
-                                                                                    <div className="flex items-center justify-between mt-2">
-                                                                                        <div className="flex items-center space-x-2"><button onClick={() => handleUpdateStock(item, -1)} className="w-7 h-7 flex items-center justify-center rounded-full bg-stone-50 text-stone-600"><Minus className="w-3 h-3" /></button><span className="text-lg font-bold w-6 text-center text-stone-700">{item.quantity}</span><button onClick={() => handleUpdateStock(item, 1)} className="w-7 h-7 flex items-center justify-center rounded-full bg-stone-50 text-stone-600"><Plus className="w-3 h-3" /></button></div>
-                                                                                        <button onClick={() => handleFeedClick(item)} className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-bold shadow-sm transition active:scale-95 ${item.quantity > 0 || item.category === '凍乾' ? 'bg-orange-500 text-white hover:bg-orange-600' : 'bg-stone-100 text-stone-400'}`} disabled={item.quantity <= 0 && item.category !== '凍乾'}><Utensils className="w-3 h-3" /> {item.quantity <= 0 && item.category !== '凍乾' ? '需補貨' : '餵食'}</button>
+                                                                                        <div className="flex items-center justify-between mt-2">
+                                                                                            <div className="flex items-center space-x-2"><button onClick={() => handleUpdateStock(item, -1)} className="w-7 h-7 flex items-center justify-center rounded-full bg-stone-50 text-stone-600"><Minus className="w-3 h-3" /></button><span className="text-lg font-bold w-6 text-center text-stone-700">{item.quantity}</span><button onClick={() => handleUpdateStock(item, 1)} className="w-7 h-7 flex items-center justify-center rounded-full bg-stone-50 text-stone-600"><Plus className="w-3 h-3" /></button></div>
+                                                                                            <button onClick={() => handleFeedClick(item)} className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-bold shadow-sm transition active:scale-95 ${item.quantity > 0 || item.category === '凍乾' ? 'bg-orange-500 text-white hover:bg-orange-600' : 'bg-stone-100 text-stone-400'}`} disabled={item.quantity <= 0 && item.category !== '凍乾'}><Utensils className="w-3 h-3" /> {item.quantity <= 0 && item.category !== '凍乾' ? '需補貨' : '餵食'}</button>
+                                                                                        </div>
                                                                                     </div>
                                                                                 </div>
                                                                             </div>
-                                                                        </div>
-                                                                    );
-                                                                })}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        })}
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })
+                        )}
                         <button onClick={() => setIsAddModalOpen(true)} className="fixed bottom-24 right-4 w-14 h-14 bg-orange-500 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-orange-600 active:scale-95 transition z-40 fab-transition"><Plus className="w-8 h-8" /></button>
                     </div>
                 );
@@ -515,7 +529,6 @@
                 </div>
             );
 
-            if (!isConfigured) return <div className="min-h-screen flex items-center justify-center p-6 bg-stone-50"><div className="text-center max-w-md bg-white p-8 rounded-2xl shadow-lg border border-red-100"><AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" /><h1 className="text-xl font-bold text-stone-800 mb-2">尚未設定資料庫</h1><p className="text-stone-500 text-sm leading-relaxed mb-6">請檢查程式碼中的 firebaseConfig 是否正確填入。</p></div></div>;
             if (loading && !items.length) return <div className="min-h-screen bg-stone-50 flex items-center justify-center"><Loader2 className="w-10 h-10 text-orange-400 animate-spin" /></div>;
 
             return (
@@ -525,10 +538,13 @@
                         <div className="max-w-md mx-auto px-4 py-3 flex justify-between items-center">
                             <div className="flex items-center gap-2">
                                 <div className="w-10 h-10 rounded-full border overflow-hidden">
-                                    <img src="001.png" alt="Logo" className="w-full h-full object-cover" onError={(e) => {e.target.onerror=null; e.target.src='https://placekitten.com/100/100'}} /> 
+                                    <img src="001.png" alt="Logo" className="w-full h-full object-cover" onError={(e) => {e.target.onerror=null; e.target.src='https://api.dicebear.com/7.x/bottts/svg?seed=cat'}} /> 
                                 </div>
                                 <div>
-                                    <h1 className="text-lg font-bold text-stone-800 leading-none flex items-center gap-1">哈娜黑啾｜生活紀錄</h1>
+                                    <h1 className="text-lg font-bold text-stone-800 leading-none flex items-center gap-1">
+                                        哈娜黑啾｜生活紀錄
+                                        <span className="text-[10px] font-normal text-stone-300 align-top ml-0.5">{APP_VERSION}</span>
+                                    </h1>
                                     <span className="text-[10px] text-stone-400 font-mono">房間: {roomId}</span>
                                 </div>
                             </div>
@@ -546,7 +562,6 @@
                             </div>
                         )}
                     </header>
-
                     <main className="max-w-md mx-auto p-4">
                         {activeTab === 'dashboard' && (
                             <div className="space-y-6 animate-in fade-in">
@@ -558,7 +573,7 @@
                                             {favoriteFoods.hana.length > 0 ? favoriteFoods.hana.map((item, idx) => (
                                                 <div key={idx} className="mb-3">
                                                     <div className="text-xs font-medium truncate text-stone-500">{idx+1}. {item.name}</div>
-                                                    <div className="flex items-center gap-1 text-xs text-stone-400 mt-1"><Star className="w-3 h-3 fill-yellow-400 text-yellow-400" /> <span>{item.avg.toFixed(1)}</span> <span className="text-stone-300 ml-1">({item.count}次)</span></div>
+                                                    <div className="flex items-center gap-1 text-xs text-stone-400 mt-1"><Star className="w-3 h-3 fill-yellow-400 text-yellow-400" /><span>{item.avg.toFixed(1)}</span><span className="text-stone-300 ml-1">({item.count}次)</span></div>
                                                 </div>
                                             )) : <div className="text-[10px] text-stone-300 italic">尚無評分</div>}
                                         </div>
@@ -567,7 +582,7 @@
                                             {favoriteFoods.heyJude.length > 0 ? favoriteFoods.heyJude.map((item, idx) => (
                                                 <div key={idx} className="mb-3">
                                                     <div className="text-xs font-medium truncate text-stone-500">{idx+1}. {item.name}</div>
-                                                    <div className="flex items-center gap-1 text-xs text-stone-400 mt-1"><Star className="w-3 h-3 fill-yellow-400 text-yellow-400" /> <span>{item.avg.toFixed(1)}</span> <span className="text-stone-300 ml-1">({item.count}次)</span></div>
+                                                    <div className="flex items-center gap-1 text-xs text-stone-400 mt-1"><Star className="w-3 h-3 fill-yellow-400 text-yellow-400" /><span>{item.avg.toFixed(1)}</span><span className="text-stone-300 ml-1">({item.count}次)</span></div>
                                                 </div>
                                             )) : <div className="text-[10px] text-stone-300 italic">尚無評分</div>}
                                         </div>
@@ -580,7 +595,6 @@
                         {activeTab === 'history' && renderHistory()}
                     </main>
 
-                    {/* Modals */}
                     <Modal isOpen={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="確認刪除">
                         <div className="text-center mb-4">確定要刪除「{deleteTarget?.name}」嗎？</div>
                         <div className="flex gap-3"><button onClick={() => setDeleteTarget(null)} className="flex-1 py-2 bg-stone-100 rounded-xl font-bold">取消</button><button onClick={confirmDelete} className="flex-1 py-2 bg-red-500 text-white rounded-xl font-bold">刪除</button></div>
@@ -624,16 +638,13 @@
 
                     <Modal isOpen={!!editTarget} onClose={() => setEditTarget(null)} title="編輯品項">
                         <form onSubmit={handleEditSave} className="space-y-4">
-                            <input type="text" value={editFormData.brand} onChange={e => setEditFormData({...editFormData, brand: e.target.value})} className="w-full border p-2 rounded" placeholder="品牌" />
+                            <input type="text" value={editFormData.brand} onChange={e => setEditFormData({...editFormData, brand: e.target.value})} className="w-full border p-2 rounded" placeholder="品牌" list="brand-list-edit"/>
                             <input type="text" value={editFormData.name} onChange={e => setEditFormData({...editFormData, name: e.target.value})} className="w-full border p-2 rounded" placeholder="品名" required />
                             <div className="flex gap-2">
                                 <select value={editFormData.category} onChange={e => setEditFormData({...editFormData, category: e.target.value})} className="border p-2 rounded flex-1">{CATEGORIES.map(c => <option key={c}>{c}</option>)}</select>
                                 <select value={editFormData.unit} onChange={e => setEditFormData({...editFormData, unit: e.target.value})} className="border p-2 rounded w-1/3"><option>罐</option><option>包</option><option>盒</option><option>條</option><option>g</option></select>
                             </div>
-                            <div className="flex gap-2 items-center border p-2 rounded">
-                                <label className="text-xs text-stone-500 whitespace-nowrap">重量(g):</label>
-                                <input type="number" value={editFormData.weight} onChange={e => setEditFormData({...editFormData, weight: e.target.value})} className="w-full outline-none" placeholder="選填" />
-                            </div>
+                            <div className="flex gap-2 items-center border p-2 rounded"><label className="text-xs text-stone-500 whitespace-nowrap">重量(g):</label><input type="number" value={editFormData.weight} onChange={e => setEditFormData({...editFormData, weight: e.target.value})} className="w-full outline-none" placeholder="選填" /></div>
                             <button type="submit" className="w-full bg-orange-500 text-white p-3 rounded-xl font-bold hover:bg-orange-600 transition">儲存</button>
                         </form>
                     </Modal>
@@ -648,60 +659,56 @@
                                         <button type="button" onClick={(e) => {e.stopPropagation(); setNewItemImage('');}} className="absolute top-3 right-3 bg-black/50 text-white p-2 rounded-full backdrop-blur-md hover:bg-red-500 transition"><X className="w-4 h-4"/></button>
                                         <button type="button" onClick={(e) => {e.stopPropagation(); handleSmartScan();}} disabled={isScanning} className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur text-stone-800 px-4 py-2 rounded-full shadow-lg font-bold text-sm flex items-center gap-2 hover:scale-105 transition">
                                             {isScanning ? <Loader2 className="w-4 h-4 animate-spin"/> : <Sparkles className="w-4 h-4 text-purple-500"/>}
-                                            <span>AI 營養辨識</span>
+                                            <span>AI 辨識</span>
                                         </button>
                                     </>
                                 ) : (
                                     <div className="flex flex-col items-center text-stone-400 group-hover:text-orange-400 transition">
-                                        <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center mb-3"><Camera className="w-8 h-8" /></div>
-                                        <span className="font-bold text-sm">拍攝或上傳照片</span>
+                                        <div className="w-16 h-16 bg-white rounded-full shadow-sm flex items-center justify-center mb-3"><Camera className="w-8 h-8" /></div>
+                                        <span className="font-bold text-sm">點擊拍攝或上傳照片</span>
                                     </div>
                                 )}
                                 <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageSelect} />
                             </div>
                             <div className="space-y-2">
                                 <label className="text-xs font-bold text-stone-400 ml-1">品牌</label>
-                                <input type="text" value={newItemBrand} onChange={e => setNewItemBrand(e.target.value)} className="w-full px-4 py-3 bg-stone-50 rounded-xl border-none focus:ring-2 focus:ring-orange-100 outline-none font-bold text-stone-700" placeholder="例如：汪喵星球" />
+                                <input type="text" value={newItemBrand} onChange={e => setNewItemBrand(e.target.value)} className="w-full px-4 py-3 bg-stone-50 rounded-xl border-none focus:ring-2 focus:ring-orange-100 outline-none font-bold text-stone-700 placeholder-stone-300 transition" placeholder="例如：汪喵星球" list="brand-list" />
+                                {existingBrands.length > 0 && <div className="mt-2 flex flex-wrap gap-2 overflow-x-auto pb-1 no-scrollbar">{existingBrands.slice(0,5).map(b => <button type="button" key={b} onClick={() => setNewItemBrand(b)} className="text-xs bg-stone-100 px-3 py-1.5 rounded-full text-stone-600 hover:bg-stone-200 border border-stone-100 font-medium transition">{b}</button>)}</div>}
                             </div>
-                            <div className="space-y-2">
-                                <label className="text-xs font-bold text-stone-400 ml-1">品項名稱</label>
-                                <input type="text" value={newItemName} onChange={e => setNewItemName(e.target.value)} className="w-full px-4 py-3 bg-stone-50 rounded-xl border-none focus:ring-2 focus:ring-orange-100 outline-none font-bold text-stone-700" placeholder="例如：雞肉餐" required />
-                            </div>
+                            <div className="space-y-2"><label className="text-xs font-bold text-stone-400 ml-1">品項名稱</label><input type="text" value={newItemName} onChange={e => setNewItemName(e.target.value)} className="w-full px-4 py-3 bg-stone-50 rounded-xl border-none focus:ring-2 focus:ring-orange-100 outline-none font-bold text-stone-700 placeholder-stone-300 transition" placeholder="例如：雞肉餐" required /></div>
                             <div className="space-y-2">
                                 <label className="text-xs font-bold text-stone-400 ml-1">分類</label>
                                 <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-                                    {CATEGORIES.map(cat => (
-                                         <button key={cat} type="button" onClick={() => setNewItemCategory(cat)} className={`flex-1 py-3 px-2 rounded-xl font-bold text-sm transition-all ${newItemCategory === cat ? 'bg-orange-500 text-white shadow-lg' : 'bg-stone-50 text-stone-400'}`}>{cat}</button>
-                                    ))}
+                                    {CATEGORIES.map(cat => (<button key={cat} type="button" onClick={() => setNewItemCategory(cat)} className={`flex-1 py-3 px-2 rounded-xl font-bold text-sm whitespace-nowrap transition-all ${newItemCategory === cat ? 'bg-orange-500 text-white shadow-lg shadow-orange-200 transform -translate-y-0.5' : 'bg-stone-50 text-stone-400 hover:bg-stone-100'}`}>{cat}</button>))}
                                 </div>
                             </div>
                             <div className="flex gap-4">
                                 <div className="flex-1 space-y-2">
                                     <label className="text-xs font-bold text-stone-400 ml-1">數量</label>
                                     <div className="flex items-center justify-between bg-stone-50 rounded-xl p-1.5 border border-stone-100">
-                                        <button type="button" onClick={() => setNewItemQuantity(Math.max(0, newItemQuantity - 1))} className="w-10 h-10 bg-white rounded-lg shadow-sm text-stone-500 flex items-center justify-center"><Minus className="w-4 h-4"/></button>
-                                        <input type="number" value={newItemQuantity} onChange={(e) => setNewItemQuantity(Number(e.target.value))} className="w-full bg-transparent text-center font-bold text-xl outline-none" />
-                                        <button type="button" onClick={() => setNewItemQuantity(newItemQuantity + 1)} className="w-10 h-10 bg-white rounded-lg shadow-sm text-stone-500 flex items-center justify-center"><Plus className="w-4 h-4"/></button>
+                                        <button type="button" onClick={() => setNewItemQuantity(Math.max(0, newItemQuantity - 1))} className="w-10 h-10 bg-white rounded-lg shadow-sm text-stone-500 flex items-center justify-center hover:scale-95 transition"><Minus className="w-4 h-4"/></button>
+                                        <input type="number" value={newItemQuantity} onChange={(e) => setNewItemQuantity(Number(e.target.value))} className="w-full bg-transparent text-center font-bold text-xl outline-none text-stone-700" />
+                                        <button type="button" onClick={() => setNewItemQuantity(newItemQuantity + 1)} className="w-10 h-10 bg-white rounded-lg shadow-sm text-stone-500 flex items-center justify-center hover:scale-95 transition"><Plus className="w-4 h-4"/></button>
                                     </div>
                                 </div>
                                 <div className="w-1/3 space-y-2">
                                     <label className="text-xs font-bold text-stone-400 ml-1">單位 & 克數</label>
                                     <div className="flex flex-col gap-2">
                                         <select value={newItemUnit} onChange={(e) => setNewItemUnit(e.target.value)} className="w-full h-10 px-2 bg-stone-50 rounded-xl border border-stone-100 font-bold text-stone-600 outline-none text-center text-sm"><option>罐</option><option>包</option><option>盒</option><option>條</option><option>g</option></select>
-                                        <input type="number" value={newItemWeight} onChange={(e) => setNewItemWeight(e.target.value)} className="w-full h-10 px-2 bg-stone-50 rounded-xl border border-stone-100 font-bold text-stone-600 outline-none text-center text-sm" placeholder="克數(g)" />
+                                        <input type="number" value={newItemWeight} onChange={(e) => setNewItemWeight(e.target.value)} className="w-full h-10 px-2 bg-stone-50 rounded-xl border border-stone-100 font-bold text-stone-600 outline-none text-center text-sm" placeholder="g" />
                                     </div>
                                 </div>
                             </div>
                             <div className="flex gap-3 pt-2">
-                                <button type="button" onClick={handleCancelAdd} className="flex-1 py-3 bg-stone-100 text-stone-500 rounded-xl font-bold">取消</button>
-                                <button type="submit" disabled={isProcessingImage} className="flex-[2] py-3 bg-orange-500 text-white rounded-xl font-bold shadow-lg">確認新增</button>
+                                <button type="button" onClick={handleCancelAdd} className="flex-1 py-3 bg-stone-100 text-stone-500 rounded-xl font-bold hover:bg-stone-200 transition">取消</button>
+                                <button type="submit" disabled={isProcessingImage} className="flex-[2] py-3 bg-orange-500 text-white rounded-xl font-bold shadow-lg hover:bg-orange-600 active:scale-95 transition">確認新增</button>
                             </div>
                          </form>
                     </Modal>
-
+                    
                     <Modal isOpen={!!vomitTarget} onClose={() => setVomitTarget(null)} title={`記錄${vomitTarget}嘔吐`}>
                         <div className="space-y-4">
-                            <textarea className="w-full p-3 border rounded-xl h-32" placeholder="請輸入嘔吐狀況 (選填)" value={vomitNote} onChange={(e) => setVomitNote(e.target.value)} />
+                            <textarea className="w-full p-3 border rounded-xl h-32" placeholder="備註 (吐毛球、未消化飼料...)" value={vomitNote} onChange={(e) => setVomitNote(e.target.value)} />
                             <button onClick={handleConfirmVomit} className="w-full py-3 bg-red-500 text-white rounded-xl font-bold shadow-md">確認紀錄</button>
                         </div>
                     </Modal>
